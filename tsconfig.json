@@ -1,0 +1,22 @@
+{
+  "compilerOptions": {
+    "lib": ["ESNext"],
+    "outDir": "dist",
+    "module": "CommonJS",
+    "target": "ES2020",
+    "esModuleInterop": true,
+    "moduleResolution": "node",
+    "strict": true,
+    "alwaysStrict": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "noImplicitReturns": true,
+    "allowUnreachableCode": false,
+    "skipLibCheck": true,
+    "declaration": true,
+    "declarationMap": true,
+    "resolveJsonModule": true
+  },
+  "include": ["src/**/*.ts"],
+  "exclude": ["node_modules", "dist"]
+}
