@@ -1,7 +1,8 @@
 {
   "name": "wah",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Generic WebSocket action handler with Zod-based schema validation and typed message dispatch",
+  "author": "vinerima",
   "license": "MIT",
   "main": "./dist/index.js",
   "module": "./dist/index.mjs",
