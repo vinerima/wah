@@ -2,8 +2,11 @@
 
 Generic WebSocket action handler for TypeScript. Connect to any WebSocket, define message schemas with [Zod](https://zod.dev), and dispatch to typed handlers.
 
+Works in both Node.js and browser environments with zero configuration — the runtime is detected automatically.
+
 ## Features
 
+- **Cross-platform** — Runs in Node.js (using `ws`) and browsers (using native `WebSocket`) with the same API. Runtime detection is automatic.
 - **Schema-matched handlers** — Register Zod schemas with handler functions. Incoming messages are validated at runtime, and all matching handlers are invoked with fully typed data.
 - **Multi-service failover** — Provide multiple WebSocket URLs. On connection failure, wah cycles through them with exponential backoff.
 - **Dynamic query parameters** — Update URL query parameters at runtime. The connection gracefully reconnects with the new URL.
@@ -14,13 +17,21 @@ Generic WebSocket action handler for TypeScript. Connect to any WebSocket, defin
 ## Installation
 
 ```bash
-pnpm add wah
+pnpm add @vinerima/wah
 ```
+
+In Node.js, install `ws` as well:
+
+```bash
+pnpm add ws
+```
+
+`ws` is an optional peer dependency — browser environments use the native `WebSocket` and don't need it.
 
 ## Quick Start
 
 ```typescript
-import { WebSocketClient, LogLevel } from "wah";
+import { WebSocketClient, LogLevel } from "@vinerima/wah";
 import { z } from "zod";
 
 // Define message schemas
@@ -73,6 +84,16 @@ client.send({ action: "subscribe", channel: "orderbook" });
 client.close();
 ```
 
+## Platform Behavior
+
+| Concern | Node.js | Browser |
+|---|---|---|
+| WebSocket | `ws` package (peer dependency) | Native `WebSocket` |
+| Binary-to-string | `Buffer` | `TextDecoder` |
+| Heartbeat ping | Sends ping frames at `pingInterval` | No-op (browsers handle keepalive at the protocol level) |
+
+The `pingInterval` option has no effect in browser environments. Servers that send ping frames receive automatic pong responses from the browser's WebSocket implementation.
+
 ## API Reference
 
 ### `WebSocketClient`
@@ -94,7 +115,7 @@ new WebSocketClient(options: WebSocketClientOptions)
 | `reconnect.backoffFactor` | `number` | `1.5` | Multiplier applied after each failed attempt. |
 | `reconnect.maxAttempts` | `number` | `3` | Max attempts per service before switching. |
 | `reconnect.maxServiceCycles` | `number` | `2` | Max full cycles through all services. |
-| `pingInterval` | `number` | `10000` | Heartbeat ping interval (ms). |
+| `pingInterval` | `number` | `10000` | Heartbeat ping interval (ms). No-op in browsers. |
 | `logger.enabled` | `boolean` | `true` | Enable/disable logging. |
 | `logger.level` | `LogLevel` | `INFO` | Minimum log level. |
 | `logger.custom` | `LoggerInterface` | — | Custom logger implementation. |
@@ -187,7 +208,7 @@ const client = new WebSocketClient({
 Replace the built-in console logger with your own implementation:
 
 ```typescript
-import { WebSocketClient, LoggerInterface } from "wah";
+import { WebSocketClient, LoggerInterface } from "@vinerima/wah";
 
 const myLogger: LoggerInterface = {
   debug: (msg, ctx) => myLoggingService.log("debug", msg, ctx),
