@@ -17,3 +17,8 @@ export type {
   HandlerRegistration,
   HandlerError,
 } from "./router/types";
+
+export { Emitter } from "./platform/Emitter";
+export { getPlatformAdapter } from "./platform/index";
+export type { PlatformAdapter, UniversalWebSocket } from "./platform/types";
+export { WS_READY_STATE } from "./platform/types";

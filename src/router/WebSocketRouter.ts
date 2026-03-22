@@ -1,5 +1,5 @@
-import { EventEmitter } from "events";
 import { z } from "zod";
+import { Emitter } from "../platform/Emitter";
 import { ConnectionInfo } from "../connection/types";
 import { HandlerRegistration, HandlerError, MessageHandler } from "./types";
 import { Logger } from "../logger/Logger";
@@ -15,7 +15,7 @@ import { Logger } from "../logger/Logger";
  * Events emitted:
  * - `"error"` — a handler threw or JSON parsing failed (emits {@link HandlerError})
  */
-export class WebSocketRouter extends EventEmitter {
+export class WebSocketRouter extends Emitter {
   private handlers: HandlerRegistration[] = [];
   private logger: Logger;
 
@@ -23,6 +23,7 @@ export class WebSocketRouter extends EventEmitter {
     super();
     this.logger = logger;
   }
+
 
   /**
    * Registers a handler that will be invoked for every message matching the given schema.

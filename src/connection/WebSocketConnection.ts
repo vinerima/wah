@@ -1,5 +1,6 @@
-import { EventEmitter } from "events";
-import WebSocket from "ws";
+import { Emitter } from "../platform/Emitter";
+import { getPlatformAdapter, WS_READY_STATE } from "../platform/index";
+import type { PlatformAdapter, UniversalWebSocket } from "../platform/types";
 import { ConnectionOptions, ConnectionInfo, ConnectionState, ReconnectOptions } from "./types";
 import { Logger } from "../logger/Logger";
 
@@ -12,19 +13,20 @@ import { Logger } from "../logger/Logger";
  * - `"open"` — connection established
  * - `"close"` — connection closed (emits `{ code: number, reason: string }`)
  * - `"error"` — connection error (emits the `Error` object)
- * - `"message"` — message received (emits the raw `WebSocket.Data`)
+ * - `"message"` — message received (emits the raw message data)
  * - `"reconnecting"` — about to attempt reconnection (emits `{ attempt, maxAttempts, delay, service }`)
  * - `"serviceSwitched"` — failed over to a different service URL (emits `{ from, to, cycle }`)
  */
-export class WebSocketConnection extends EventEmitter {
+export class WebSocketConnection extends Emitter {
   private services: string[];
   private queryParams: Record<string, string | number | boolean>;
   private reconnectConfig: Required<ReconnectOptions>;
   private pingInterval: number;
 
-  private ws: WebSocket | null = null;
-  private pingTimer: NodeJS.Timeout | null = null;
-  private reconnectTimer: NodeJS.Timeout | null = null;
+  private adapter: PlatformAdapter;
+  private ws: UniversalWebSocket | null = null;
+  private pingTimer: ReturnType<typeof setInterval> | null = null;
+  private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
 
   private serviceIndex = 0;
   private reconnectAttempts = 0;
@@ -38,6 +40,7 @@ export class WebSocketConnection extends EventEmitter {
 
   constructor(options: ConnectionOptions, logger: Logger) {
     super();
+    this.adapter = getPlatformAdapter();
     this.services = Array.isArray(options.service) ? options.service : [options.service];
     this.queryParams = { ...options.queryParams };
     this.pingInterval = options.pingInterval ?? 10000;
@@ -86,8 +89,8 @@ export class WebSocketConnection extends EventEmitter {
    * Sends raw data through the WebSocket.
    * @returns `true` if the data was sent, `false` if the connection is not open.
    */
-  send(data: string | Buffer): boolean {
-    if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+  send(data: string | ArrayBuffer | Uint8Array): boolean {
+    if (this.ws && this.ws.readyState === WS_READY_STATE.OPEN) {
       try {
         this.ws.send(data);
         return true;
@@ -138,11 +141,11 @@ export class WebSocketConnection extends EventEmitter {
   private getState(): ConnectionState {
     if (!this.ws) return "closed";
     switch (this.ws.readyState) {
-      case WebSocket.CONNECTING:
+      case WS_READY_STATE.CONNECTING:
         return "connecting";
-      case WebSocket.OPEN:
+      case WS_READY_STATE.OPEN:
         return "connected";
-      case WebSocket.CLOSING:
+      case WS_READY_STATE.CLOSING:
         return "closing";
       default:
         return "closed";
@@ -175,40 +178,53 @@ export class WebSocketConnection extends EventEmitter {
 
     try {
       this.logger.info("Connecting to WebSocket", { service: serviceUrl });
-      this.ws = new WebSocket(serviceUrl);
+      const ws = this.adapter.createWebSocket(serviceUrl);
+      this.ws = ws;
 
-      this.ws.on("open", () => {
+      ws.onopen = () => {
         this.isConnecting = false;
         this.reconnectAttempts = 0;
         this.serviceCycles = 0;
         this.startHeartbeat();
         this.logger.info("WebSocket connected", { service: serviceUrl });
         this.emit("open");
-      });
+      };
 
-      this.ws.on("message", (data: WebSocket.Data) => {
+      ws.onmessage = (event: unknown) => {
         this.messageCount++;
         this.lastMessageTime = Date.now();
+        // Node ws passes the data directly; browser wraps in MessageEvent
+        const data = event && typeof event === "object" && "data" in event
+          ? (event as { data: unknown }).data
+          : event;
         this.emit("message", data);
-      });
+      };
 
-      this.ws.on("error", (error: Error) => {
+      ws.onerror = (event: unknown) => {
+        const error = event instanceof Error
+          ? event
+          : new Error("WebSocket error");
         this.logger.error("WebSocket error", error);
         this.isConnecting = false;
         this.emit("error", error);
-      });
+      };
 
-      this.ws.on("close", (code: number, reason: Buffer) => {
-        const reasonStr = reason.toString();
-        this.logger.info("WebSocket disconnected", { code, reason: reasonStr });
+      ws.onclose = (event: unknown) => {
+        const code = event && typeof event === "object" && "code" in event
+          ? (event as { code: number }).code
+          : 1006;
+        const reason = event && typeof event === "object" && "reason" in event
+          ? String((event as { reason: unknown }).reason)
+          : "";
+        this.logger.info("WebSocket disconnected", { code, reason });
         this.isConnecting = false;
         this.stopHeartbeat();
-        this.emit("close", { code, reason: reasonStr });
+        this.emit("close", { code, reason });
 
         if (this.shouldReconnect) {
           this.scheduleReconnect();
         }
-      });
+      };
     } catch (error) {
       this.logger.error("Error creating WebSocket", error);
       this.isConnecting = false;
@@ -286,8 +302,11 @@ export class WebSocketConnection extends EventEmitter {
 
   private cleanup(): void {
     if (this.ws) {
-      this.ws.removeAllListeners();
-      if (this.ws.readyState === WebSocket.OPEN || this.ws.readyState === WebSocket.CONNECTING) {
+      this.adapter.removeAllListeners(this.ws);
+      if (
+        this.ws.readyState === WS_READY_STATE.OPEN ||
+        this.ws.readyState === WS_READY_STATE.CONNECTING
+      ) {
         try {
           this.ws.close();
         } catch {
@@ -300,11 +319,12 @@ export class WebSocketConnection extends EventEmitter {
   }
 
   private startHeartbeat(): void {
+    if (!this.adapter.supportsPing) return;
     this.stopHeartbeat();
     this.pingTimer = setInterval(() => {
-      if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+      if (this.ws && this.ws.readyState === WS_READY_STATE.OPEN) {
         try {
-          this.ws.ping();
+          this.adapter.ping(this.ws);
         } catch (error) {
           this.logger.error("Error sending ping", error);
         }

@@ -1,6 +1,7 @@
-import { EventEmitter } from "events";
-import WebSocket from "ws";
 import { z } from "zod";
+import { Emitter } from "./platform/Emitter";
+import { getPlatformAdapter } from "./platform/index";
+import type { PlatformAdapter } from "./platform/types";
 import { WebSocketConnection } from "./connection/WebSocketConnection";
 import { WebSocketRouter } from "./router/WebSocketRouter";
 import { Logger } from "./logger/Logger";
@@ -41,13 +42,15 @@ import { MessageHandler, HandlerError } from "./router/types";
  * client.connect();
  * ```
  */
-export class WebSocketClient extends EventEmitter {
+export class WebSocketClient extends Emitter {
   private connection: WebSocketConnection;
   private router: WebSocketRouter;
   private logger: Logger;
+  private adapter: PlatformAdapter;
 
   constructor(options: WebSocketClientOptions) {
     super();
+    this.adapter = getPlatformAdapter();
     this.logger = new Logger(options.logger);
     this.connection = new WebSocketConnection(options, this.logger);
     this.router = new WebSocketRouter(this.logger);
@@ -99,13 +102,15 @@ export class WebSocketClient extends EventEmitter {
   /**
    * Sends data through the WebSocket. Objects are JSON-serialized automatically.
    *
-   * @param data - Data to send. Objects/arrays are JSON.stringified; strings and Buffers are sent as-is.
+   * @param data - Data to send. Objects/arrays are JSON.stringified; strings and binary data are sent as-is.
    * @returns `true` if sent, `false` if the connection is not open.
    */
   send(data: unknown): boolean {
     const serialized =
-      typeof data === "string" || Buffer.isBuffer(data) ? data : JSON.stringify(data);
-    return this.connection.send(serialized);
+      typeof data === "string" || data instanceof Uint8Array || data instanceof ArrayBuffer
+        ? data
+        : JSON.stringify(data);
+    return this.connection.send(serialized as string | ArrayBuffer | Uint8Array);
   }
 
   /**
@@ -148,8 +153,8 @@ export class WebSocketClient extends EventEmitter {
     this.router.on("error", (handlerError: HandlerError) => this.emit("error", handlerError));
 
     // Connection messages → router
-    this.connection.on("message", (data: WebSocket.Data) => {
-      const raw = this.toRawString(data);
+    this.connection.on("message", (data: unknown) => {
+      const raw = this.adapter.dataToString(data);
       if (raw !== null) {
         const sendFn = (payload: unknown): boolean => this.send(payload);
         const info = this.connection.getConnectionInfo();
@@ -159,21 +164,5 @@ export class WebSocketClient extends EventEmitter {
         });
       }
     });
-  }
-
-  private toRawString(data: WebSocket.Data): string | null {
-    if (typeof data === "string") {
-      return data;
-    }
-    if (Buffer.isBuffer(data)) {
-      return data.toString("utf-8");
-    }
-    if (data instanceof ArrayBuffer) {
-      return Buffer.from(data).toString("utf-8");
-    }
-    if (Array.isArray(data)) {
-      return Buffer.concat(data).toString("utf-8");
-    }
-    return null;
   }
 }
