@@ -131,6 +131,25 @@ export class WebSocketClient extends Emitter {
   }
 
   /**
+   * Merges new query parameters without triggering a reconnection.
+   * The updated params take effect on the next connection attempt
+   * (e.g., when the built-in reconnection fires after a disconnect).
+   *
+   * @param params - Key-value pairs to merge into the current query parameters.
+   *
+   * @example
+   * ```typescript
+   * // Update cursor on disconnect so reconnection resumes from last position
+   * client.on("close", () => {
+   *   client.setParams({ cursor: lastEventId });
+   * });
+   * ```
+   */
+  setParams(params: Record<string, string | number | boolean>): void {
+    this.connection.setParams(params);
+  }
+
+  /**
    * Returns a read-only snapshot of the current connection state.
    */
   getConnectionInfo(): ConnectionInfo {

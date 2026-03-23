@@ -119,6 +119,16 @@ export class WebSocketConnection extends Emitter {
   }
 
   /**
+   * Merges new query parameters without triggering a reconnection.
+   * The updated params will take effect on the next connection attempt
+   * (e.g., after a disconnect triggers the built-in reconnection).
+   */
+  setParams(params: Record<string, string | number | boolean>): void {
+    this.queryParams = { ...this.queryParams, ...params };
+    this.logger.debug("Query params set (no reconnect)", { params: this.queryParams });
+  }
+
+  /**
    * Returns a read-only snapshot of the current connection state.
    */
   getConnectionInfo(): ConnectionInfo {
